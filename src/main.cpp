@@ -8,10 +8,16 @@
 #include <cmath>
 #include "util/util.h"
 
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_opengl3.h>
+
+
 uint32_t CreateShader(char* vss, char *fss);
 
 static uint32_t gs_iScreenWidth = 800;
 static uint32_t gs_iScreenHeight = 600;
+uint32_t vpT, vpD, vpFbo;
 
 static glm::mat4 gs_mProjectionMat;
 void WindowSizeChanged(GLFWwindow* window, int w, int h)
@@ -20,6 +26,31 @@ void WindowSizeChanged(GLFWwindow* window, int w, int h)
 	uint32_t gs_iScreenHeight = h;
 	gs_mProjectionMat = glm::perspective((float)M_PI/4.0f, (float)w/h, 0.1f, 1000.0f);
 	glViewport(0, 0, w, h);
+
+	uint32_t textures[2] = {vpT, vpD};
+	glDeleteTextures(2, textures);
+
+	glGenTextures(1, &vpT);
+	glBindTexture(GL_TEXTURE_2D, vpT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, gs_iScreenWidth, gs_iScreenHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+
+	glGenTextures(1, &vpD);
+	glBindTexture(GL_TEXTURE_2D, vpD);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, gs_iScreenWidth, gs_iScreenHeight, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, nullptr);
+
+	glDeleteFramebuffers(1, &vpFbo);
+	glGenFramebuffers(1, &vpFbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, vpFbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, vpT, 0);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, vpD, 0);
 }
 
 int main()
@@ -34,11 +65,18 @@ int main()
 	glfwMakeContextCurrent(window);
 
 	glewInit();
+
+	ImGui::CreateContext();
+	ImGui::StyleColorsDark();
+
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 330 core");
+
 	glEnable(GL_DEPTH_TEST);
 	glViewport(0, 0, gs_iScreenWidth, gs_iScreenHeight);
 
 	// load the model
-	std::pair<std::vector<float>, std::vector<uint32_t>> model = Util::LoadObj("assets/monkey.obj");
+	std::pair<std::vector<float>, std::vector<uint32_t>> model = Util::LoadObj("assets/gear.obj");
 	model.first = Util::GenerateNormals(model.first, model.second);
 	const char* vss = "#version 330 core\n"
 		"layout (location = 0) in vec3 aPos;"
@@ -64,14 +102,14 @@ int main()
 		"uniform float specular;"
 		"uniform float roughness;"
 		"void main() {"
-		"	vec4 aColor = ambient * objectColor;"
+		"	vec4 aColor = ambient * lightColor;"
 		"	vec3 lightDirection = normalize(lightPosition - fragPos);"
-		"	vec4 dColor = (1 - specular) * max(0, dot(normal, lightDirection)) * objectColor;"
+		"	vec4 dColor = (1 - specular) * max(0, dot(normal, lightDirection)) * lightColor;"
 		"	vec3 halfVec = reflect(-lightDirection, normal);"
 		"	vec3 viewDirection = normalize(cameraPosition - fragPos);"
-		"	float spec = pow(max(0, dot(viewDirection, halfVec)), roughness);"
-		"	vec4 sColor = specular * spec * objectColor;"
-		"	color = aColor + dColor + sColor;"
+		"	float spec = pow(max(0, dot(viewDirection, halfVec)), (1 - roughness)*32);"
+		"	vec4 sColor = specular * spec * lightColor;"
+		"	color = (aColor + dColor + sColor) * objectColor;"
 		"}";
 
 	uint32_t vao, vbo, ebo;
@@ -107,7 +145,30 @@ int main()
 	glm::vec4 objectColor(1, 1, 1, 1);
 	float ambient = 0.3f;
 	float specular = 0.5f;
-	float roughness = 32;
+	float roughness = 0;
+
+	// for the viewport
+	glGenTextures(1, &vpT);
+	glBindTexture(GL_TEXTURE_2D, vpT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, gs_iScreenWidth, gs_iScreenHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+
+	glGenTextures(1, &vpD);
+	glBindTexture(GL_TEXTURE_2D, vpD);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, gs_iScreenWidth, gs_iScreenHeight, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, nullptr);
+
+	glGenFramebuffers(1, &vpFbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, vpFbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, vpT, 0);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, vpD, 0);
+
 	while (!glfwWindowShouldClose(window))
 	{
 		glfwPollEvents();
@@ -141,11 +202,44 @@ int main()
 
 		int32_t roughnessLocation = glGetUniformLocation(program, "roughness");
 		glUniform1f(roughnessLocation, roughness);
-
+		glBindFramebuffer(GL_FRAMEBUFFER, vpFbo);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glDrawElements(GL_TRIANGLES, model.second.size(), GL_UNSIGNED_INT, nullptr);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+		ImGui::Begin("Controls");
+		ImGui::SliderFloat("Object Position - X", &objectPosition.x, -10, 10);
+		ImGui::SliderFloat("Object Position - Y", &objectPosition.y, -10, 10);
+		ImGui::SliderFloat("Object Position - Z", &objectPosition.z, -10, 10);
+
+		ImGui::SliderFloat("Light Position - X", &lightPosition.x, -10, 10);
+		ImGui::SliderFloat("Light Position - Y", &lightPosition.y, -10, 10);
+		ImGui::SliderFloat("Light Position - Z", &lightPosition.z, -10, 10);
+
+		ImGui::SliderFloat("ambinet", &ambient, 0, 1);
+		ImGui::SliderFloat("specular", &specular, 0, 1);
+		ImGui::End();
+
+		ImGui::Begin("Viewport");
+		ImGui::Image(ImTextureID(vpT), ImVec2(gs_iScreenWidth/1.3, gs_iScreenHeight/1.3), ImVec2(0, 1), ImVec2(1, 0));
+		ImGui::End();
+
+		ImGui::Begin("Colors");
+
+		ImGui::ColorPicker4("Object Color", glm::value_ptr(objectColor));
+		ImGui::ColorPicker4("Light Color", glm::value_ptr(lightColor));
+		ImGui::End();
+		ImGui::Render();
+		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 		glfwSwapBuffers(window);
 	}
+
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
 
 	glfwDestroyWindow(window);
 	glfwTerminate();
